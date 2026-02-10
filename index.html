@@ -13,27 +13,35 @@
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             overflow: hidden; 
+            background-color: #0f0f0f;
         }
 
         /* Área do Canvas */
         #map-canvas {
-            background-color: #1a1a1a;
-            /* Grid sutil apenas para referência visual */
-            background-image: 
-                linear-gradient(#2a2a2a 1px, transparent 1px),
-                linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
-            background-size: 32px 32px; 
+            background-color: #1a1a1a; /* Fundo sólido padrão */
             position: relative;
             overflow: hidden;
-            width: 3000px; /* Mundo expandido */
-            height: 3000px;
-            transform-origin: 0 0;
-            transition: cursor 0.2s;
+            width: 4000px; /* Mundo expandido */
+            height: 4000px;
+            transform-origin: 0 0; /* Zoom a partir do topo esquerdo */
+            transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* Classe para ativar a Grade visualmente */
+        #map-canvas.show-grid {
+            background-image: 
+                linear-gradient(#333 1px, transparent 1px),
+                linear-gradient(90deg, #333 1px, transparent 1px);
+            background-size: 32px 32px; 
         }
 
         /* Estilo para modo visitante */
         #map-canvas.readonly {
-            cursor: default !important;
+            cursor: grab; /* Permite arrastar o canvas para navegar (Pan) */
+        }
+        #map-canvas.readonly:active {
+            cursor: grabbing;
         }
         
         /* Estilo para modo editor */
@@ -49,7 +57,7 @@
             position: absolute;
             user-select: none;
             border: 1px solid transparent;
-            transition: border 0.1s;
+            transition: border 0.1s, box-shadow 0.2s;
         }
 
         /* Interatividade apenas no modo editor */
@@ -65,18 +73,26 @@
             box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
         }
 
-        /* Tooltip simples para modo visitante */
-        .visitor-tooltip {
+        /* Tooltip de Informação (Visitante) - Agora ativado por clique */
+        .info-popup {
             position: absolute;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(15, 23, 42, 0.95);
             color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            pointer-events: none;
+            padding: 12px;
+            border-radius: 8px;
             z-index: 1000;
-            font-size: 12px;
-            max-width: 200px;
+            font-size: 13px;
+            max-width: 250px;
             border: 1px solid #4a5568;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.2s ease-out;
+            pointer-events: none; /* Deixa clicar através se necessário, ou auto se tiver botões */
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         /* Scrollbars customizadas */
@@ -121,7 +137,7 @@
     <div id="app-container" class="flex-1 flex overflow-hidden w-full h-full relative">
         
         <!-- SIDEBAR ESQUERDA: ASSETS (Apenas Admin) -->
-        <div id="sidebar-assets" class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all">
+        <div id="sidebar-assets" class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all flex-shrink-0">
             <div class="p-4 border-b border-gray-700 bg-gray-800">
                 <h3 class="font-bold text-lg"><i class="fas fa-images mr-2"></i>Assets do GitHub</h3>
                 <p class="text-xs text-gray-400 mt-1">Imagens da pasta /maps</p>
@@ -139,28 +155,41 @@
         </div>
 
         <!-- ÁREA CENTRAL: CANVAS -->
-        <div class="flex-1 relative bg-gray-900 overflow-hidden flex flex-col">
+        <div class="flex-1 relative bg-gray-900 overflow-hidden flex flex-col min-w-0">
             
-            <!-- Header Visitante / Toolbar Admin -->
-            <div class="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 z-20 shadow">
-                <div class="flex items-center space-x-4">
-                    <h1 class="font-bold text-lg tracking-wide">MAPA MUNDO</h1>
-                    <span class="text-xs font-mono text-gray-500" id="coords-display"></span>
+            <!-- Toolbar Superior -->
+            <div class="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 z-20 shadow shrink-0">
+                <!-- Controles de Navegação (Esquerda) -->
+                <div class="flex items-center space-x-2">
+                    <button id="btn-fit" class="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded text-xs" title="Centralizar Mapa">
+                        <i class="fas fa-compress-arrows-alt"></i> Fit
+                    </button>
+                    <div class="flex items-center bg-gray-700 rounded overflow-hidden">
+                        <button id="btn-zoom-out" class="hover:bg-gray-600 text-white px-3 py-1 border-r border-gray-600"><i class="fas fa-minus"></i></button>
+                        <span id="zoom-display" class="px-3 text-xs font-mono w-16 text-center">100%</span>
+                        <button id="btn-zoom-in" class="hover:bg-gray-600 text-white px-3 py-1 border-l border-gray-600"><i class="fas fa-plus"></i></button>
+                    </div>
+                    <button id="btn-grid" class="bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white p-2 rounded text-xs ml-2" title="Alternar Grade">
+                        <i class="fas fa-border-all"></i>
+                    </button>
                 </div>
-                <div class="flex space-x-2">
+
+                <div class="flex items-center space-x-4">
+                    <span class="text-xs font-mono text-gray-500 hidden md:block" id="coords-display">X: 0 Y: 0</span>
+                    
                     <!-- Botão Salvar (Apenas Admin) -->
-                    <button id="save-btn" class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm items-center shadow transition">
-                        <i class="fas fa-save mr-2"></i> Salvar Alterações
+                    <button id="save-btn" class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm items-center shadow transition font-bold">
+                        <i class="fas fa-save mr-2"></i> Salvar
                     </button>
                     <!-- Botão Login (Apenas Visitante) -->
-                    <button id="login-trigger-btn" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-1 rounded text-sm flex items-center shadow transition border border-gray-600">
-                        <i class="fas fa-lock mr-2"></i> Área Admin
+                    <button id="login-trigger-btn" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-1.5 rounded text-sm flex items-center shadow transition border border-gray-600">
+                        <i class="fas fa-lock mr-2"></i> Admin
                     </button>
                 </div>
             </div>
 
-            <!-- Wrapper para scroll -->
-            <div class="flex-1 overflow-auto relative custom-scrollbar" id="canvas-wrapper">
+            <!-- Wrapper para scroll e Pan -->
+            <div class="flex-1 overflow-auto relative custom-scrollbar bg-gray-950" id="canvas-wrapper">
                 <div id="map-canvas" class="readonly">
                     <!-- As imagens do mapa serão inseridas aqui -->
                 </div>
@@ -168,7 +197,7 @@
         </div>
 
         <!-- SIDEBAR DIREITA: PROPRIEDADES (Apenas Admin) -->
-        <div id="sidebar-props" class="w-72 bg-gray-800 border-l border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all">
+        <div id="sidebar-props" class="w-72 bg-gray-800 border-l border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all flex-shrink-0">
             <div class="p-4 border-b border-gray-700 bg-gray-800">
                 <h3 class="font-bold text-lg"><i class="fas fa-sliders-h mr-2"></i>Propriedades</h3>
             </div>
@@ -236,13 +265,12 @@
         import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // =================================================================
-        // CONFIGURAÇÃO DO GITHUB (ATUALIZADO)
+        // CONFIGURAÇÃO DO GITHUB
         // =================================================================
         const GITHUB_USER = 'aurioshlookin'; 
         const GITHUB_REPO = 'mapasninonline';    
         // =================================================================
 
-        // Configuração do Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDggIKgs1Ci8hsqyGf4_NrCgJopiisFZvo",
             authDomain: "mapasninonline.firebaseapp.com",
@@ -253,7 +281,6 @@
             measurementId: "G-YH6SWRVTNM"
         };
 
-        // Inicializar Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -262,11 +289,14 @@
         let currentMapData = []; 
         let selectedElementId = null;
         let isEditorMode = false;
+        let currentZoom = 1;
+        let activeInfoPopup = null; // ID do popup ativo
         
         // --- UI REFS ---
         const loginModal = document.getElementById('login-modal');
         const loginForm = document.getElementById('login-form');
         const mapCanvas = document.getElementById('map-canvas');
+        const canvasWrapper = document.getElementById('canvas-wrapper');
         const assetsList = document.getElementById('assets-list');
         const propPanel = document.getElementById('properties-panel');
         const noSelection = document.getElementById('no-selection');
@@ -275,10 +305,96 @@
         const saveBtn = document.getElementById('save-btn');
         const loginTriggerBtn = document.getElementById('login-trigger-btn');
         const coordsDisplay = document.getElementById('coords-display');
+        const zoomDisplay = document.getElementById('zoom-display');
 
         // --- INICIALIZAÇÃO ---
-        // Carrega o mapa imediatamente (Modo Leitura)
         loadMapDataFromFirebase();
+
+        // --- ZOOM & PAN CONTROLS ---
+        
+        function updateZoom(newZoom) {
+            // Limitar zoom entre 0.1 (10%) e 3 (300%)
+            currentZoom = Math.max(0.1, Math.min(newZoom, 3));
+            mapCanvas.style.transform = `scale(${currentZoom})`;
+            zoomDisplay.innerText = `${Math.round(currentZoom * 100)}%`;
+        }
+
+        document.getElementById('btn-zoom-in').addEventListener('click', () => updateZoom(currentZoom + 0.1));
+        document.getElementById('btn-zoom-out').addEventListener('click', () => updateZoom(currentZoom - 0.1));
+        
+        // Atalho: Scroll do mouse para zoom
+        canvasWrapper.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                updateZoom(currentZoom + (e.deltaY < 0 ? 0.1 : -0.1));
+            }
+        });
+
+        // Toggle Grid
+        document.getElementById('btn-grid').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            mapCanvas.classList.toggle('show-grid');
+            if(mapCanvas.classList.contains('show-grid')) {
+                btn.classList.add('text-white', 'bg-blue-600');
+                btn.classList.remove('text-gray-400');
+            } else {
+                btn.classList.remove('text-white', 'bg-blue-600');
+                btn.classList.add('text-gray-400');
+            }
+        });
+
+        // Fit to Screen (Centralizar)
+        document.getElementById('btn-fit').addEventListener('click', fitMapToScreen);
+
+        function fitMapToScreen() {
+            if (currentMapData.length === 0) return;
+
+            // Calcular Bounding Box de todos os elementos
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+            currentMapData.forEach(p => {
+                // Estimando tamanho base da imagem se não tivermos dimensão carregada ainda
+                // Como não sabemos o tamanho exato da img sem ela carregar, usamos uma estimativa ou pegamos do DOM
+                const el = document.getElementById(p.id);
+                const width = el ? el.offsetWidth : 100; 
+                const height = el ? el.offsetHeight : 100;
+
+                if (p.x < minX) minX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.x + width > maxX) maxX = p.x + width;
+                if (p.y + height > maxY) maxY = p.y + height;
+            });
+
+            // Adicionar margem
+            const padding = 100;
+            minX -= padding; minY -= padding;
+            maxX += padding; maxY += padding;
+
+            const mapWidth = maxX - minX;
+            const mapHeight = maxY - minY;
+            const viewportWidth = canvasWrapper.clientWidth;
+            const viewportHeight = canvasWrapper.clientHeight;
+
+            // Calcular zoom ideal para caber tudo
+            const zoomX = viewportWidth / mapWidth;
+            const zoomY = viewportHeight / mapHeight;
+            let optimalZoom = Math.min(zoomX, zoomY, 1); // Não dar zoom in maior que 100% no fit
+
+            updateZoom(optimalZoom);
+
+            // Centralizar Scroll
+            // O centro do conteúdo é (minX + mapWidth/2, minY + mapHeight/2)
+            // Precisamos rolar o wrapper para que esse ponto fique no meio
+            
+            // Fórmula Scroll: (PosiçãoReal * Zoom) - (MetadeViewport)
+            const centerX = minX + mapWidth / 2;
+            const centerY = minY + mapHeight / 2;
+
+            canvasWrapper.scrollLeft = (centerX * currentZoom) - (viewportWidth / 2);
+            canvasWrapper.scrollTop = (centerY * currentZoom) - (viewportHeight / 2);
+            
+            showToast("Mapa centralizado!");
+        }
 
         // --- AUTH LOGIC ---
         onAuthStateChanged(auth, (user) => {
@@ -294,8 +410,12 @@
 
         function enableEditorMode(enabled) {
             isEditorMode = enabled;
+            // Remover popups antigos
+            document.querySelectorAll('.info-popup').forEach(el => el.remove());
+            activeInfoPopup = null;
+
             if (enabled) {
-                // Ativar UI de Editor
+                // UI de Editor
                 sidebarAssets.classList.remove('hidden');
                 sidebarProps.classList.remove('hidden');
                 saveBtn.classList.remove('hidden');
@@ -304,10 +424,9 @@
                 mapCanvas.classList.remove('readonly');
                 mapCanvas.classList.add('editable');
                 
-                // Carregar lista de imagens do GitHub apenas se for admin
                 loadGitHubAssets();
             } else {
-                // Ativar UI de Visitante
+                // UI de Visitante
                 sidebarAssets.classList.add('hidden');
                 sidebarProps.classList.add('hidden');
                 saveBtn.classList.add('hidden');
@@ -316,7 +435,6 @@
                 mapCanvas.classList.add('readonly');
                 mapCanvas.classList.remove('editable');
                 
-                // Limpar seleção
                 if(selectedElementId) selectPiece(null);
             }
         }
@@ -344,64 +462,33 @@
             signOut(auth);
         });
 
-        // --- GITHUB ASSETS INTEGRATION ---
-
+        // --- GITHUB ASSETS ---
         async function loadGitHubAssets() {
-            assetsList.innerHTML = '<div class="text-gray-400 text-center text-xs p-4"><i class="fas fa-sync fa-spin mr-2"></i>Buscando imagens no GitHub...</div>';
+            assetsList.innerHTML = '<div class="text-gray-400 text-center text-xs p-4"><i class="fas fa-sync fa-spin mr-2"></i>Buscando imagens...</div>';
             
-            // Tentar detectar automaticamente se não estiver configurado
             let user = GITHUB_USER;
             let repo = GITHUB_REPO;
-            
-            // Fallback simples: se as variáveis ainda forem os placeholders e estivermos no domínio github.io
-            if (user === 'SEU_USUARIO_GITHUB' && window.location.hostname.includes('github.io')) {
-                // Tenta extrair da URL: usuario.github.io/repositorio
-                user = window.location.hostname.split('.')[0];
-                const pathParts = window.location.pathname.split('/');
-                if (pathParts[1]) repo = pathParts[1];
-            }
-
-            if (user === 'SEU_USUARIO_GITHUB') {
-                assetsList.innerHTML = `
-                    <div class="p-4 text-xs text-red-400 border border-red-800 rounded bg-red-900/20">
-                        <strong>Configuração Necessária:</strong><br>
-                        Edite o arquivo index.html e preencha as variáveis <code>GITHUB_USER</code> e <code>GITHUB_REPO</code> nas linhas ~160 com seus dados para carregar as imagens automaticamente.
-                    </div>
-                    ${getCustomUrlBtn()}
-                `;
-                return;
-            }
 
             try {
                 const apiUrl = `https://api.github.com/repos/${user}/${repo}/contents/maps`;
                 const response = await fetch(apiUrl);
-                
-                if (!response.ok) throw new Error('Falha ao listar arquivos (Verifique usuário/repo ou limite de API)');
+                if (!response.ok) throw new Error('Falha ao listar arquivos');
                 
                 const files = await response.json();
-                
-                // Filtrar apenas imagens
                 const images = files.filter(file => file.name.match(/\.(png|jpg|jpeg|gif|webp)$/i));
 
                 assetsList.innerHTML = '';
-                
-                if (images.length === 0) {
-                    assetsList.innerHTML = '<div class="text-gray-500 text-center p-4">Nenhuma imagem encontrada na pasta /maps.</div>';
-                }
+                if (images.length === 0) assetsList.innerHTML = '<div class="text-gray-500 text-center p-4">Nenhuma imagem.</div>';
 
                 images.forEach(file => {
                     createAssetItem(file.name, file.download_url || `./maps/${file.name}`);
                 });
-                
                 assetsList.insertAdjacentHTML('beforeend', getCustomUrlBtn());
 
             } catch (error) {
                 console.error(error);
                 assetsList.innerHTML = `
-                    <div class="text-red-400 text-xs p-2">
-                        Erro ao carregar GitHub: ${error.message}.<br>
-                        Certifique-se que a pasta "maps" existe.
-                    </div>
+                    <div class="text-red-400 text-xs p-2">Erro ao carregar imagens.</div>
                     ${getCustomUrlBtn()}
                 `;
             }
@@ -410,7 +497,6 @@
         function createAssetItem(name, url) {
             const div = document.createElement('div');
             div.className = "bg-gray-700 p-2 rounded cursor-pointer hover:bg-gray-600 transition flex items-center gap-2 group border border-gray-600 hover:border-blue-500";
-            
             div.innerHTML = `
                 <div class="w-10 h-10 bg-gray-900 rounded overflow-hidden flex items-center justify-center border border-gray-600 relative">
                     <img src="${url}" class="max-w-full max-h-full object-contain">
@@ -420,11 +506,7 @@
                 </div>
                 <i class="fas fa-plus-circle text-blue-400 opacity-0 group-hover:opacity-100 transition"></i>
             `;
-
-            div.addEventListener('click', () => {
-                addMapPieceToCanvas(url);
-            });
-
+            div.addEventListener('click', () => addMapPieceToCanvas(url));
             assetsList.appendChild(div);
         }
 
@@ -432,13 +514,11 @@
             return `
                 <div class="mt-4 border-t border-gray-700 pt-3">
                     <button id="btn-custom-url" class="w-full text-xs bg-gray-700 hover:bg-gray-600 p-2 rounded text-gray-300 border border-gray-600 border-dashed">
-                        + Adicionar via URL
+                        + URL
                     </button>
-                </div>
-            `;
+                </div>`;
         }
         
-        // Listener delegado para o botão dinâmico
         document.addEventListener('click', function(e){
             if(e.target && e.target.id == 'btn-custom-url'){
                 const url = prompt("Cole a URL da imagem:");
@@ -446,7 +526,7 @@
             }
         });
 
-        // --- CANVAS & MANIPULATION ---
+        // --- CANVAS LOGIC ---
 
         function addMapPieceToCanvas(src, existingData = null) {
             const id = existingData ? existingData.id : 'map_' + Date.now();
@@ -457,12 +537,12 @@
             
             const img = document.createElement('img');
             img.src = src;
-            img.draggable = false; // Desabilita drag nativo do browser
+            img.draggable = false;
             img.style.pointerEvents = 'none'; 
             
             piece.appendChild(img);
 
-            // Dados iniciais ou carregados
+            // Dados iniciais
             const data = existingData || {
                 id: id,
                 src: src,
@@ -474,30 +554,40 @@
                 missions: ''
             };
 
-            // Se for novo, adiciona ao array
+            // Se novo, centraliza na visão atual
             if (!existingData) {
-                // Centralizar na tela (aproximado)
+                // Calcular centro da visão considerando scroll e zoom
                 const wrapper = document.getElementById('canvas-wrapper');
-                data.x = wrapper.scrollLeft + 100;
-                data.y = wrapper.scrollTop + 100;
+                // Pega o centro da viewport
+                const viewportCX = wrapper.scrollLeft + (wrapper.clientWidth / 2);
+                const viewportCY = wrapper.scrollTop + (wrapper.clientHeight / 2);
+                
+                // Converte para coordenadas do canvas (dividindo pelo zoom)
+                data.x = Math.round(viewportCX / currentZoom);
+                data.y = Math.round(viewportCY / currentZoom);
+                
                 currentMapData.push(data);
             }
 
             updateElementDOM(piece, data);
 
-            // Adicionar Tooltip para Visitantes
-            addVisitorTooltipEvents(piece, data);
-
-            // Eventos de Edição (Drag)
+            // Eventos unificados
             piece.addEventListener('mousedown', (e) => {
-                if(!isEditorMode) return;
-                startDragging(e, piece, data);
+                if(isEditorMode) {
+                    startDragging(e, piece, data);
+                }
             });
             
+            // Lógica de clique (Edição vs Visita)
             piece.addEventListener('click', (e) => {
-                if(!isEditorMode) return;
-                e.stopPropagation();
-                selectPiece(data.id);
+                e.stopPropagation(); // Impede propagar para o canvas
+                
+                if(isEditorMode) {
+                    selectPiece(data.id);
+                } else {
+                    // Modo Visitante: Toggle Popup Info
+                    toggleVisitorPopup(piece, data);
+                }
             });
 
             mapCanvas.appendChild(piece);
@@ -509,67 +599,126 @@
             el.style.zIndex = data.z;
         }
 
-        function addVisitorTooltipEvents(piece, data) {
-            // Se tiver informações relevantes, mostra tooltip no hover
-            if (!data.mobs && !data.missions) return;
+        // --- LÓGICA DE POPUP PARA VISITANTES (CLIQUE) ---
+        function toggleVisitorPopup(piece, data) {
+            // Se não tiver dados, não faz nada
+            if (!data.mobs && !data.missions && !data.drops) return;
 
-            piece.addEventListener('mouseenter', () => {
-                if (isEditorMode) return; // Não mostrar tooltip no modo editor para não atrapalhar
-                
-                const tooltip = document.createElement('div');
-                tooltip.className = 'visitor-tooltip';
-                tooltip.id = `tooltip-${data.id}`;
-                
-                let content = '';
-                if(data.mobs) content += `<div class="text-red-300 font-bold mb-1"><i class="fas fa-skull"></i> ${data.mobs}</div>`;
-                if(data.missions) content += `<div class="text-yellow-300"><i class="fas fa-exclamation-circle"></i> ${data.missions}</div>`;
-                
-                tooltip.innerHTML = content;
-                
-                // Posicionar perto do elemento
-                tooltip.style.left = (parseInt(piece.style.left) + 20) + 'px';
-                tooltip.style.top = (parseInt(piece.style.top) - 20) + 'px';
-                
-                mapCanvas.appendChild(tooltip);
-            });
+            // Se já estiver aberto nesse elemento, fecha
+            if (activeInfoPopup === data.id) {
+                closePopup();
+                return;
+            }
 
-            piece.addEventListener('mouseleave', () => {
-                const t = document.getElementById(`tooltip-${data.id}`);
-                if(t) t.remove();
-            });
+            // Fecha qualquer outro aberto
+            closePopup();
+
+            // Cria novo
+            const popup = document.createElement('div');
+            popup.className = 'info-popup';
+            popup.id = `popup-${data.id}`;
+            
+            let content = '';
+            if(data.mobs) content += `<div class="text-red-300 font-bold mb-2 pb-1 border-b border-gray-600"><i class="fas fa-skull mr-2"></i> ${data.mobs}</div>`;
+            if(data.drops) content += `<div class="text-green-300 text-xs mb-2"><i class="fas fa-gem mr-1"></i> Drops: ${data.drops}</div>`;
+            if(data.missions) content += `<div class="text-yellow-300"><i class="fas fa-exclamation-circle mr-1"></i> ${data.missions}</div>`;
+            
+            popup.innerHTML = content;
+            
+            // Adiciona ao canvas
+            mapCanvas.appendChild(popup);
+            activeInfoPopup = data.id;
+
+            // Posiciona acima do elemento
+            const pieceRect = piece.getBoundingClientRect(); // Tamanho visual
+            // Coordenadas internas
+            const pX = parseInt(piece.style.left);
+            const pY = parseInt(piece.style.top);
+            
+            // Offset simples
+            popup.style.left = pX + 'px';
+            popup.style.top = (pY - 10) + 'px'; 
+            // Ajuste fino com transform para subir 100% da altura do popup
+            popup.style.transform = "translateY(-100%)";
         }
 
-        // --- DRAG AND DROP ---
+        function closePopup() {
+            document.querySelectorAll('.info-popup').forEach(p => p.remove());
+            activeInfoPopup = null;
+        }
+
+        // --- DRAG AND DROP (Modo Editor) ---
         let isDragging = false;
         let activeDragPiece = null;
         let activeDragData = null;
         let dragOffset = { x: 0, y: 0 };
+        let isPanning = false; // Controle para Pan no modo visitante ou com Middle Click
+        let panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+
+        mapCanvas.addEventListener('mousedown', (e) => {
+            // Lógica de Pan (Arrastar o mapa)
+            // Se for botão do meio (1) ou botão esquerdo (0) no modo visitante
+            if (e.button === 1 || (e.button === 0 && (!isEditorMode || e.target === mapCanvas))) {
+                e.preventDefault();
+                isPanning = true;
+                panStart.x = e.clientX;
+                panStart.y = e.clientY;
+                panStart.scrollLeft = canvasWrapper.scrollLeft;
+                panStart.scrollTop = canvasWrapper.scrollTop;
+                mapCanvas.style.cursor = 'grabbing';
+            }
+            // Se clicar no fundo no modo editor, deseleciona e fecha popup
+            if (e.target === mapCanvas) {
+                if (isEditorMode) selectPiece(null);
+                else closePopup();
+            }
+        });
 
         function startDragging(e, piece, data) {
             if (e.button !== 0) return; 
             e.preventDefault();
-            
             selectPiece(data.id); 
-            
             isDragging = true;
             activeDragPiece = piece;
             activeDragData = data;
             
+            // Calcular offset levando em conta o Zoom
             const rect = piece.getBoundingClientRect();
-            dragOffset.x = e.clientX - rect.left;
-            dragOffset.y = e.clientY - rect.top;
+            // Diferença visual em pixels
+            const visualOffsetX = e.clientX - rect.left;
+            const visualOffsetY = e.clientY - rect.top;
             
-            document.addEventListener('mousemove', handleDragMove);
-            document.addEventListener('mouseup', stopDragging);
+            // Converter para unidades internas do canvas (dividindo pelo zoom)
+            dragOffset.x = visualOffsetX / currentZoom;
+            dragOffset.y = visualOffsetY / currentZoom;
+            
+            document.addEventListener('mousemove', handleGlobalMove);
+            document.addEventListener('mouseup', stopActions);
         }
 
-        function handleDragMove(e) {
+        function handleGlobalMove(e) {
+            // Handle Panning
+            if (isPanning) {
+                const dx = e.clientX - panStart.x;
+                const dy = e.clientY - panStart.y;
+                canvasWrapper.scrollLeft = panStart.scrollLeft - dx;
+                canvasWrapper.scrollTop = panStart.scrollTop - dy;
+                return;
+            }
+
+            // Handle Dragging Piece
             if (!isDragging) return;
             
             const canvasRect = mapCanvas.getBoundingClientRect();
             
-            let newX = e.clientX - canvasRect.left - dragOffset.x;
-            let newY = e.clientY - canvasRect.top - dragOffset.y;
+            // Posição do mouse relativa ao topo-esquerdo do Canvas (visual)
+            const relativeX = e.clientX - canvasRect.left;
+            const relativeY = e.clientY - canvasRect.top;
+            
+            // Converter para coordenadas internas (Lógica de Zoom: Desfazer a escala)
+            // Coord Interna = Coord Visual / Zoom
+            let newX = (relativeX / currentZoom) - dragOffset.x;
+            let newY = (relativeY / currentZoom) - dragOffset.y;
             
             // Pixel Perfect (Inteiros)
             newX = Math.round(newX);
@@ -586,16 +735,26 @@
                 document.getElementById('prop-y').value = newY;
             }
             
-            coordsDisplay.innerText = `X: ${newX}, Y: ${newY}`;
+            coordsDisplay.innerText = `X: ${newX} Y: ${newY}`;
         }
 
-        function stopDragging() {
+        function stopActions() {
             isDragging = false;
             activeDragPiece = null;
             activeDragData = null;
-            document.removeEventListener('mousemove', handleDragMove);
-            document.removeEventListener('mouseup', stopDragging);
+            
+            if (isPanning) {
+                isPanning = false;
+                mapCanvas.style.cursor = isEditorMode ? 'default' : 'grab';
+            }
+
+            document.removeEventListener('mousemove', handleGlobalMove);
+            document.removeEventListener('mouseup', stopActions);
         }
+        
+        // Listener global de movimento para Panning (já que é no wrapper)
+        document.addEventListener('mousemove', handleGlobalMove);
+        document.addEventListener('mouseup', stopActions);
 
         // --- SELEÇÃO ---
         function selectPiece(id) {
@@ -632,13 +791,6 @@
             document.getElementById('prop-missions').value = data.missions || '';
         }
 
-        // Fundo deseleciona
-        mapCanvas.addEventListener('mousedown', (e) => {
-            if (isEditorMode && e.target === mapCanvas) {
-                selectPiece(null);
-            }
-        });
-
         // Inputs de propriedade
         ['prop-x', 'prop-y', 'prop-z', 'prop-mobs', 'prop-drops', 'prop-missions'].forEach(id => {
             document.getElementById(id).addEventListener('input', (e) => {
@@ -672,7 +824,7 @@
             const originalHTML = btn.innerHTML;
             
             try {
-                btn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i> Salvando...`;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i> ...`;
                 btn.disabled = true;
                 
                 await setDoc(doc(db, "maps_data", "global_map"), {
@@ -681,10 +833,10 @@
                     updatedBy: auth.currentUser.email
                 });
                 
-                showToast("Mapa salvo com sucesso!", "success");
+                showToast("Salvo com sucesso!", "success");
             } catch (e) {
-                console.error("Erro ao salvar:", e);
-                showToast("Erro ao salvar: " + e.message, "error");
+                console.error("Erro:", e);
+                showToast("Erro ao salvar", "error");
             } finally {
                 btn.innerHTML = originalHTML;
                 btn.disabled = false;
@@ -706,11 +858,12 @@
                             addMapPieceToCanvas(data.src, data);
                         });
                         
-                        if(isEditorMode) showToast("Mapa carregado.", "success");
+                        // Após carregar, tenta centralizar automaticamente
+                        setTimeout(fitMapToScreen, 500); 
                     }
                 }
             } catch (e) {
-                console.error("Erro ao carregar:", e);
+                console.error("Erro load:", e);
                 showToast("Erro ao carregar mapa.", "error");
             }
         }
