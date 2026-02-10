@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editor de Mapas - Nin Online</title>
+    <title>Mapa Nin Online</title>
     <!-- Tailwind CSS para Estilo -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome para Ícones -->
@@ -12,25 +12,35 @@
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            overflow: hidden; /* Impede scroll na página inteira, apenas nas áreas específicas */
+            overflow: hidden; 
         }
 
-        /* Área do Canvas com Grid */
+        /* Área do Canvas */
         #map-canvas {
             background-color: #1a1a1a;
+            /* Grid sutil apenas para referência visual */
             background-image: 
                 linear-gradient(#2a2a2a 1px, transparent 1px),
                 linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
-            background-size: 32px 32px; /* Grid de 32x32 pixels */
-            cursor: grab;
+            background-size: 32px 32px; 
             position: relative;
             overflow: hidden;
-            width: 2000px; /* Tamanho virtual do mundo */
-            height: 2000px;
+            width: 3000px; /* Mundo expandido */
+            height: 3000px;
             transform-origin: 0 0;
+            transition: cursor 0.2s;
         }
 
-        #map-canvas.grabbing {
+        /* Estilo para modo visitante */
+        #map-canvas.readonly {
+            cursor: default !important;
+        }
+        
+        /* Estilo para modo editor */
+        #map-canvas.editable {
+            cursor: grab;
+        }
+        #map-canvas.editable:active {
             cursor: grabbing;
         }
 
@@ -42,16 +52,31 @@
             transition: border 0.1s;
         }
 
-        .map-piece:hover {
+        /* Interatividade apenas no modo editor */
+        .editable .map-piece:hover {
             border: 1px solid rgba(255, 255, 255, 0.5);
             cursor: move;
-            z-index: 10;
+            z-index: 100;
         }
 
-        .map-piece.selected {
-            border: 2px solid #3b82f6; /* Azul selection */
-            z-index: 20;
-            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        .editable .map-piece.selected {
+            border: 2px solid #3b82f6; 
+            z-index: 200;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+        }
+
+        /* Tooltip simples para modo visitante */
+        .visitor-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 12px;
+            max-width: 200px;
+            border: 1px solid #4a5568;
         }
 
         /* Scrollbars customizadas */
@@ -66,17 +91,15 @@
             background: #4a5568;
             border-radius: 4px;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #718096;
-        }
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen flex flex-col">
 
-    <!-- LOGIN OVERLAY -->
-    <div id="login-overlay" class="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl w-96 border border-gray-700">
-            <h2 class="text-2xl font-bold mb-6 text-center text-blue-400">Acesso ao Editor</h2>
+    <!-- LOGIN MODAL (Inicia oculto) -->
+    <div id="login-modal" class="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl w-96 border border-gray-700 relative">
+            <button id="close-login" class="absolute top-2 right-4 text-gray-400 hover:text-white text-xl">&times;</button>
+            <h2 class="text-2xl font-bold mb-6 text-center text-blue-400">Acesso Admin</h2>
             <form id="login-form" class="space-y-4">
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Email</label>
@@ -94,52 +117,58 @@
         </div>
     </div>
 
-    <!-- MAIN APP (Hidden until login) -->
-    <div id="app-container" class="flex-1 flex overflow-hidden hidden">
+    <!-- APP CONTAINER -->
+    <div id="app-container" class="flex-1 flex overflow-hidden w-full h-full relative">
         
-        <!-- SIDEBAR ESQUERDA: ASSETS -->
-        <div class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col shadow-lg z-20">
+        <!-- SIDEBAR ESQUERDA: ASSETS (Apenas Admin) -->
+        <div id="sidebar-assets" class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all">
             <div class="p-4 border-b border-gray-700 bg-gray-800">
-                <h3 class="font-bold text-lg"><i class="fas fa-images mr-2"></i>Mapas Disponíveis</h3>
-                <p class="text-xs text-gray-400 mt-1">Clique para adicionar ao palco</p>
+                <h3 class="font-bold text-lg"><i class="fas fa-images mr-2"></i>Assets do GitHub</h3>
+                <p class="text-xs text-gray-400 mt-1">Imagens da pasta /maps</p>
             </div>
             
             <div id="assets-list" class="flex-1 overflow-y-auto p-2 space-y-2">
-                <!-- Lista de imagens será gerada via JS -->
-                <div class="text-gray-500 text-center text-sm p-4">Carregando lista...</div>
+                <div class="text-gray-500 text-center text-sm p-4">Conectando ao GitHub...</div>
             </div>
 
             <div class="p-4 border-t border-gray-700">
                 <button id="logout-btn" class="w-full bg-red-600/20 hover:bg-red-600 text-red-100 py-1 px-3 rounded text-sm transition">
-                    <i class="fas fa-sign-out-alt mr-1"></i> Sair
+                    <i class="fas fa-sign-out-alt mr-1"></i> Sair do Editor
                 </button>
             </div>
         </div>
 
         <!-- ÁREA CENTRAL: CANVAS -->
         <div class="flex-1 relative bg-gray-900 overflow-hidden flex flex-col">
-            <!-- Toolbar Superior -->
-            <div class="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 z-10 shadow">
+            
+            <!-- Header Visitante / Toolbar Admin -->
+            <div class="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 z-20 shadow">
                 <div class="flex items-center space-x-4">
-                    <span class="text-sm font-mono text-gray-400" id="coords-display">X: 0, Y: 0</span>
+                    <h1 class="font-bold text-lg tracking-wide">MAPA MUNDO</h1>
+                    <span class="text-xs font-mono text-gray-500" id="coords-display"></span>
                 </div>
                 <div class="flex space-x-2">
-                    <button id="save-btn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm flex items-center shadow">
-                        <i class="fas fa-save mr-2"></i> Salvar no Firebase
+                    <!-- Botão Salvar (Apenas Admin) -->
+                    <button id="save-btn" class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm items-center shadow transition">
+                        <i class="fas fa-save mr-2"></i> Salvar Alterações
+                    </button>
+                    <!-- Botão Login (Apenas Visitante) -->
+                    <button id="login-trigger-btn" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-1 rounded text-sm flex items-center shadow transition border border-gray-600">
+                        <i class="fas fa-lock mr-2"></i> Área Admin
                     </button>
                 </div>
             </div>
 
             <!-- Wrapper para scroll -->
-            <div class="flex-1 overflow-auto relative" id="canvas-wrapper">
-                <div id="map-canvas">
+            <div class="flex-1 overflow-auto relative custom-scrollbar" id="canvas-wrapper">
+                <div id="map-canvas" class="readonly">
                     <!-- As imagens do mapa serão inseridas aqui -->
                 </div>
             </div>
         </div>
 
-        <!-- SIDEBAR DIREITA: PROPRIEDADES -->
-        <div class="w-72 bg-gray-800 border-l border-gray-700 flex flex-col shadow-lg z-20">
+        <!-- SIDEBAR DIREITA: PROPRIEDADES (Apenas Admin) -->
+        <div id="sidebar-props" class="w-72 bg-gray-800 border-l border-gray-700 flex flex-col shadow-lg z-30 hidden transition-all">
             <div class="p-4 border-b border-gray-700 bg-gray-800">
                 <h3 class="font-bold text-lg"><i class="fas fa-sliders-h mr-2"></i>Propriedades</h3>
             </div>
@@ -160,7 +189,7 @@
                         <input type="number" id="prop-y" class="w-full bg-gray-700 text-white p-2 rounded mt-1 border border-gray-600 focus:border-blue-500 outline-none">
                     </div>
                     <div>
-                        <label class="text-xs text-gray-400 uppercase font-bold">Z-Index</label>
+                        <label class="text-xs text-gray-400 uppercase font-bold">Camada (Z)</label>
                         <input type="number" id="prop-z" class="w-full bg-gray-700 text-white p-2 rounded mt-1 border border-gray-600 focus:border-blue-500 outline-none">
                     </div>
                 </div>
@@ -206,7 +235,14 @@
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Configuração do Firebase fornecida
+        // =================================================================
+        // CONFIGURAÇÃO DO GITHUB (PREENCHA ISSO PARA CARREGAR AS IMAGENS)
+        // =================================================================
+        const GITHUB_USER = 'SEU_USUARIO_GITHUB'; // Ex: 'joaozinho'
+        const GITHUB_REPO = 'SEU_REPOSITORIO';    // Ex: 'mapa-rpg'
+        // =================================================================
+
+        // Configuração do Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDggIKgs1Ci8hsqyGf4_NrCgJopiisFZvo",
             authDomain: "mapasninonline.firebaseapp.com",
@@ -223,46 +259,72 @@
         const db = getFirestore(app);
 
         // --- ESTADO DA APLICAÇÃO ---
-        let currentMapData = []; // Array que guarda o estado do mapa
+        let currentMapData = []; 
         let selectedElementId = null;
+        let isEditorMode = false;
         
-        // --- CONFIGURAÇÃO DE IMAGENS ---
-        // OBS: Como o Javascript não pode listar arquivos de uma pasta automaticamente sem API,
-        // definimos uma lista de arquivos esperados. Adicione os nomes dos seus arquivos aqui.
-        const availableMapImages = [
-            'map_base_1.png',
-            'floresta_arvores.png',
-            'vila_casa.png',
-            'rio_curva.png',
-            'pedras.png',
-            // Adicione os nomes exatos dos seus arquivos na pasta 'maps/'
-        ];
-
         // --- UI REFS ---
-        const loginOverlay = document.getElementById('login-overlay');
-        const appContainer = document.getElementById('app-container');
+        const loginModal = document.getElementById('login-modal');
         const loginForm = document.getElementById('login-form');
         const mapCanvas = document.getElementById('map-canvas');
         const assetsList = document.getElementById('assets-list');
         const propPanel = document.getElementById('properties-panel');
         const noSelection = document.getElementById('no-selection');
+        const sidebarAssets = document.getElementById('sidebar-assets');
+        const sidebarProps = document.getElementById('sidebar-props');
+        const saveBtn = document.getElementById('save-btn');
+        const loginTriggerBtn = document.getElementById('login-trigger-btn');
+        const coordsDisplay = document.getElementById('coords-display');
 
-        // --- AUTHENTICATION LOGIC ---
+        // --- INICIALIZAÇÃO ---
+        // Carrega o mapa imediatamente (Modo Leitura)
+        loadMapDataFromFirebase();
+
+        // --- AUTH LOGIC ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                console.log("Usuário logado:", user.email);
-                loginOverlay.classList.add('hidden');
-                appContainer.classList.remove('hidden');
-                appContainer.classList.add('flex');
-                initEditor();
+                console.log("Admin logado:", user.email);
+                enableEditorMode(true);
+                loginModal.classList.add('hidden');
             } else {
-                console.log("Usuário não logado");
-                loginOverlay.classList.remove('hidden');
-                appContainer.classList.add('hidden');
-                appContainer.classList.remove('flex');
+                console.log("Modo Visitante");
+                enableEditorMode(false);
             }
         });
 
+        function enableEditorMode(enabled) {
+            isEditorMode = enabled;
+            if (enabled) {
+                // Ativar UI de Editor
+                sidebarAssets.classList.remove('hidden');
+                sidebarProps.classList.remove('hidden');
+                saveBtn.classList.remove('hidden');
+                saveBtn.classList.add('flex');
+                loginTriggerBtn.classList.add('hidden');
+                mapCanvas.classList.remove('readonly');
+                mapCanvas.classList.add('editable');
+                
+                // Carregar lista de imagens do GitHub apenas se for admin
+                loadGitHubAssets();
+            } else {
+                // Ativar UI de Visitante
+                sidebarAssets.classList.add('hidden');
+                sidebarProps.classList.add('hidden');
+                saveBtn.classList.add('hidden');
+                saveBtn.classList.remove('flex');
+                loginTriggerBtn.classList.remove('hidden');
+                mapCanvas.classList.add('readonly');
+                mapCanvas.classList.remove('editable');
+                
+                // Limpar seleção
+                if(selectedElementId) selectPiece(null);
+            }
+        }
+
+        // Login Modal Controls
+        loginTriggerBtn.addEventListener('click', () => loginModal.classList.remove('hidden'));
+        document.getElementById('close-login').addEventListener('click', () => loginModal.classList.add('hidden'));
+        
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
@@ -270,11 +332,10 @@
             const errorMsg = document.getElementById('login-error');
             
             errorMsg.classList.add('hidden');
-            
             try {
                 await signInWithEmailAndPassword(auth, email, password);
             } catch (error) {
-                errorMsg.textContent = "Erro ao logar: " + error.message;
+                errorMsg.textContent = "Erro: " + error.message;
                 errorMsg.classList.remove('hidden');
             }
         });
@@ -283,53 +344,107 @@
             signOut(auth);
         });
 
-        // --- EDITOR LOGIC ---
+        // --- GITHUB ASSETS INTEGRATION ---
 
-        function initEditor() {
-            loadAssetsList();
-            loadMapDataFromFirebase();
+        async function loadGitHubAssets() {
+            assetsList.innerHTML = '<div class="text-gray-400 text-center text-xs p-4"><i class="fas fa-sync fa-spin mr-2"></i>Buscando imagens no GitHub...</div>';
+            
+            // Tentar detectar automaticamente se não estiver configurado
+            let user = GITHUB_USER;
+            let repo = GITHUB_REPO;
+            
+            // Fallback simples: se as variáveis ainda forem os placeholders e estivermos no domínio github.io
+            if (user === 'SEU_USUARIO_GITHUB' && window.location.hostname.includes('github.io')) {
+                // Tenta extrair da URL: usuario.github.io/repositorio
+                user = window.location.hostname.split('.')[0];
+                const pathParts = window.location.pathname.split('/');
+                if (pathParts[1]) repo = pathParts[1];
+            }
+
+            if (user === 'SEU_USUARIO_GITHUB') {
+                assetsList.innerHTML = `
+                    <div class="p-4 text-xs text-red-400 border border-red-800 rounded bg-red-900/20">
+                        <strong>Configuração Necessária:</strong><br>
+                        Edite o arquivo index.html e preencha as variáveis <code>GITHUB_USER</code> e <code>GITHUB_REPO</code> nas linhas ~160 com seus dados para carregar as imagens automaticamente.
+                    </div>
+                    ${getCustomUrlBtn()}
+                `;
+                return;
+            }
+
+            try {
+                const apiUrl = `https://api.github.com/repos/${user}/${repo}/contents/maps`;
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) throw new Error('Falha ao listar arquivos (Verifique usuário/repo ou limite de API)');
+                
+                const files = await response.json();
+                
+                // Filtrar apenas imagens
+                const images = files.filter(file => file.name.match(/\.(png|jpg|jpeg|gif|webp)$/i));
+
+                assetsList.innerHTML = '';
+                
+                if (images.length === 0) {
+                    assetsList.innerHTML = '<div class="text-gray-500 text-center p-4">Nenhuma imagem encontrada na pasta /maps.</div>';
+                }
+
+                images.forEach(file => {
+                    createAssetItem(file.name, file.download_url || `./maps/${file.name}`);
+                });
+                
+                assetsList.insertAdjacentHTML('beforeend', getCustomUrlBtn());
+
+            } catch (error) {
+                console.error(error);
+                assetsList.innerHTML = `
+                    <div class="text-red-400 text-xs p-2">
+                        Erro ao carregar GitHub: ${error.message}.<br>
+                        Certifique-se que a pasta "maps" existe.
+                    </div>
+                    ${getCustomUrlBtn()}
+                `;
+            }
         }
 
-        function loadAssetsList() {
-            assetsList.innerHTML = '';
+        function createAssetItem(name, url) {
+            const div = document.createElement('div');
+            div.className = "bg-gray-700 p-2 rounded cursor-pointer hover:bg-gray-600 transition flex items-center gap-2 group border border-gray-600 hover:border-blue-500";
             
-            // Simulação de carregar imagens da pasta maps
-            // Nota: Se a imagem não existir na pasta, ela aparecerá quebrada.
-            availableMapImages.forEach(filename => {
-                const div = document.createElement('div');
-                div.className = "bg-gray-700 p-2 rounded cursor-pointer hover:bg-gray-600 transition flex items-center gap-2 group";
-                
-                const imgPath = `./maps/${filename}`;
-                
-                div.innerHTML = `
-                    <div class="w-10 h-10 bg-gray-900 rounded overflow-hidden flex items-center justify-center border border-gray-600">
-                        <img src="${imgPath}" alt="${filename}" class="max-w-full max-h-full object-contain" onerror="this.style.display='none';this.parentElement.innerHTML='<span class=\\'text-xs\\'>Erro</span>'">
-                    </div>
-                    <span class="text-sm truncate flex-1">${filename}</span>
-                    <i class="fas fa-plus text-blue-400 opacity-0 group-hover:opacity-100 transition"></i>
-                `;
-
-                div.addEventListener('click', () => {
-                    addMapPieceToCanvas(imgPath);
-                });
-
-                assetsList.appendChild(div);
-            });
-            
-            // Botão para adicionar URL externa (fallback caso não tenha pasta maps)
-            const customBtn = document.createElement('div');
-            customBtn.className = "mt-4 border-t border-gray-600 pt-2";
-            customBtn.innerHTML = `
-                <button class="w-full text-xs bg-gray-700 hover:bg-gray-600 p-2 rounded text-gray-300">
-                    + Adicionar URL Customizada
-                </button>
+            div.innerHTML = `
+                <div class="w-10 h-10 bg-gray-900 rounded overflow-hidden flex items-center justify-center border border-gray-600 relative">
+                    <img src="${url}" class="max-w-full max-h-full object-contain">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-xs font-bold text-gray-300 truncate" title="${name}">${name}</div>
+                </div>
+                <i class="fas fa-plus-circle text-blue-400 opacity-0 group-hover:opacity-100 transition"></i>
             `;
-            customBtn.querySelector('button').addEventListener('click', () => {
+
+            div.addEventListener('click', () => {
+                addMapPieceToCanvas(url);
+            });
+
+            assetsList.appendChild(div);
+        }
+
+        function getCustomUrlBtn() {
+            return `
+                <div class="mt-4 border-t border-gray-700 pt-3">
+                    <button id="btn-custom-url" class="w-full text-xs bg-gray-700 hover:bg-gray-600 p-2 rounded text-gray-300 border border-gray-600 border-dashed">
+                        + Adicionar via URL
+                    </button>
+                </div>
+            `;
+        }
+        
+        // Listener delegado para o botão dinâmico
+        document.addEventListener('click', function(e){
+            if(e.target && e.target.id == 'btn-custom-url'){
                 const url = prompt("Cole a URL da imagem:");
                 if(url) addMapPieceToCanvas(url);
-            });
-            assetsList.appendChild(customBtn);
-        }
+            }
+        });
 
         // --- CANVAS & MANIPULATION ---
 
@@ -342,10 +457,8 @@
             
             const img = document.createElement('img');
             img.src = src;
-            img.style.pointerEvents = 'none'; // Importante para o drag funcionar na div pai
-            img.onload = () => {
-                 // Ajustar tamanho se necessário ou deixar natural
-            };
+            img.draggable = false; // Desabilita drag nativo do browser
+            img.style.pointerEvents = 'none'; 
             
             piece.appendChild(img);
 
@@ -353,28 +466,36 @@
             const data = existingData || {
                 id: id,
                 src: src,
-                x: 0,
-                y: 0,
+                x: 100,
+                y: 100,
                 z: 1,
                 mobs: '',
                 drops: '',
                 missions: ''
             };
 
-            // Se for novo, adiciona ao array global
+            // Se for novo, adiciona ao array
             if (!existingData) {
-                // Centralizar na view atual (simplificado para 100,100 por enquanto)
-                data.x = 100;
-                data.y = 100;
+                // Centralizar na tela (aproximado)
+                const wrapper = document.getElementById('canvas-wrapper');
+                data.x = wrapper.scrollLeft + 100;
+                data.y = wrapper.scrollTop + 100;
                 currentMapData.push(data);
             }
 
-            // Aplicar posição
             updateElementDOM(piece, data);
 
-            // Eventos
-            piece.addEventListener('mousedown', (e) => startDragging(e, piece, data));
+            // Adicionar Tooltip para Visitantes
+            addVisitorTooltipEvents(piece, data);
+
+            // Eventos de Edição (Drag)
+            piece.addEventListener('mousedown', (e) => {
+                if(!isEditorMode) return;
+                startDragging(e, piece, data);
+            });
+            
             piece.addEventListener('click', (e) => {
+                if(!isEditorMode) return;
                 e.stopPropagation();
                 selectPiece(data.id);
             });
@@ -388,27 +509,53 @@
             el.style.zIndex = data.z;
         }
 
-        // --- DRAG AND DROP LOGIC ---
+        function addVisitorTooltipEvents(piece, data) {
+            // Se tiver informações relevantes, mostra tooltip no hover
+            if (!data.mobs && !data.missions) return;
+
+            piece.addEventListener('mouseenter', () => {
+                if (isEditorMode) return; // Não mostrar tooltip no modo editor para não atrapalhar
+                
+                const tooltip = document.createElement('div');
+                tooltip.className = 'visitor-tooltip';
+                tooltip.id = `tooltip-${data.id}`;
+                
+                let content = '';
+                if(data.mobs) content += `<div class="text-red-300 font-bold mb-1"><i class="fas fa-skull"></i> ${data.mobs}</div>`;
+                if(data.missions) content += `<div class="text-yellow-300"><i class="fas fa-exclamation-circle"></i> ${data.missions}</div>`;
+                
+                tooltip.innerHTML = content;
+                
+                // Posicionar perto do elemento
+                tooltip.style.left = (parseInt(piece.style.left) + 20) + 'px';
+                tooltip.style.top = (parseInt(piece.style.top) - 20) + 'px';
+                
+                mapCanvas.appendChild(tooltip);
+            });
+
+            piece.addEventListener('mouseleave', () => {
+                const t = document.getElementById(`tooltip-${data.id}`);
+                if(t) t.remove();
+            });
+        }
+
+        // --- DRAG AND DROP ---
         let isDragging = false;
         let activeDragPiece = null;
         let activeDragData = null;
         let dragOffset = { x: 0, y: 0 };
 
         function startDragging(e, piece, data) {
-            if (e.button !== 0) return; // Apenas botão esquerdo
+            if (e.button !== 0) return; 
             e.preventDefault();
             
-            selectPiece(data.id); // Seleciona ao começar a arrastar
+            selectPiece(data.id); 
             
             isDragging = true;
             activeDragPiece = piece;
             activeDragData = data;
             
-            // Calcular offset do clique em relação ao elemento
             const rect = piece.getBoundingClientRect();
-            const canvasRect = mapCanvas.getBoundingClientRect();
-            
-            // A posição do mouse relativa ao elemento
             dragOffset.x = e.clientX - rect.left;
             dragOffset.y = e.clientY - rect.top;
             
@@ -421,34 +568,25 @@
             
             const canvasRect = mapCanvas.getBoundingClientRect();
             
-            // Nova posição relativa ao canvas
             let newX = e.clientX - canvasRect.left - dragOffset.x;
             let newY = e.clientY - canvasRect.top - dragOffset.y;
             
-            // Snap to grid (opcional, aqui a cada 1px para ser pixel perfect, ou 32px para grid)
-            // Para "Pixel Perfect", não arredondamos para grid grande, mas usamos Math.round
+            // Pixel Perfect (Inteiros)
             newX = Math.round(newX);
             newY = Math.round(newY);
 
-            // Limites (opcional)
-            // newX = Math.max(0, newX);
-            // newY = Math.max(0, newY);
-
-            // Atualizar DOM
             activeDragPiece.style.left = `${newX}px`;
             activeDragPiece.style.top = `${newY}px`;
             
-            // Atualizar Data
             activeDragData.x = newX;
             activeDragData.y = newY;
             
-            // Atualizar inputs se estiver selecionado
             if (selectedElementId === activeDragData.id) {
                 document.getElementById('prop-x').value = newX;
                 document.getElementById('prop-y').value = newY;
             }
             
-            updateCoords(newX, newY);
+            coordsDisplay.innerText = `X: ${newX}, Y: ${newY}`;
         }
 
         function stopDragging() {
@@ -459,21 +597,26 @@
             document.removeEventListener('mouseup', stopDragging);
         }
 
-        // --- SELEÇÃO E PROPRIEDADES ---
-
+        // --- SELEÇÃO ---
         function selectPiece(id) {
-            // Remove seleção anterior
+            if(!isEditorMode && id !== null) return;
+
             const prev = document.querySelector('.map-piece.selected');
             if (prev) prev.classList.remove('selected');
             
+            if (id === null) {
+                selectedElementId = null;
+                noSelection.classList.remove('hidden');
+                propPanel.classList.add('hidden');
+                return;
+            }
+
             selectedElementId = id;
             const el = document.getElementById(id);
             if (el) el.classList.add('selected');
             
             const data = currentMapData.find(d => d.id === id);
-            if (data) {
-                showProperties(data);
-            }
+            if (data) showProperties(data);
         }
 
         function showProperties(data) {
@@ -489,23 +632,17 @@
             document.getElementById('prop-missions').value = data.missions || '';
         }
 
-        // Deselecionar ao clicar no fundo
+        // Fundo deseleciona
         mapCanvas.addEventListener('mousedown', (e) => {
-            if (e.target === mapCanvas) {
-                selectedElementId = null;
-                const prev = document.querySelector('.map-piece.selected');
-                if (prev) prev.classList.remove('selected');
-                noSelection.classList.remove('hidden');
-                propPanel.classList.add('hidden');
+            if (isEditorMode && e.target === mapCanvas) {
+                selectPiece(null);
             }
         });
 
-        // Listeners dos inputs de propriedade
-        const inputs = ['prop-x', 'prop-y', 'prop-z', 'prop-mobs', 'prop-drops', 'prop-missions'];
-        inputs.forEach(id => {
+        // Inputs de propriedade
+        ['prop-x', 'prop-y', 'prop-z', 'prop-mobs', 'prop-drops', 'prop-missions'].forEach(id => {
             document.getElementById(id).addEventListener('input', (e) => {
                 if (!selectedElementId) return;
-                
                 const data = currentMapData.find(d => d.id === selectedElementId);
                 if (!data) return;
 
@@ -514,55 +651,43 @@
                 
                 if (field === 'x' || field === 'y' || field === 'z') {
                     data[field] = parseInt(val) || 0;
-                    const el = document.getElementById(selectedElementId);
-                    updateElementDOM(el, data);
+                    updateElementDOM(document.getElementById(selectedElementId), data);
                 } else {
                     data[field] = val;
                 }
             });
         });
 
-        // Deletar item
         document.getElementById('delete-btn').addEventListener('click', () => {
             if (!selectedElementId) return;
-            
-            const el = document.getElementById(selectedElementId);
-            if (el) el.remove();
-            
+            document.getElementById(selectedElementId).remove();
             currentMapData = currentMapData.filter(d => d.id !== selectedElementId);
-            
-            selectedElementId = null;
-            noSelection.classList.remove('hidden');
-            propPanel.classList.add('hidden');
+            selectPiece(null);
         });
 
-        function updateCoords(x, y) {
-            document.getElementById('coords-display').innerText = `X: ${x}, Y: ${y}`;
-        }
+        // --- FIRESTORE ---
 
-        // --- FIRESTORE SAVE/LOAD ---
-
-        document.getElementById('save-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('save-btn');
-            const originalText = btn.innerHTML;
+        saveBtn.addEventListener('click', async () => {
+            const btn = saveBtn;
+            const originalHTML = btn.innerHTML;
             
             try {
                 btn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i> Salvando...`;
+                btn.disabled = true;
                 
-                // Salvar no documento 'global_map' na coleção 'maps_data'
-                // Você pode mudar essa estrutura conforme necessário
                 await setDoc(doc(db, "maps_data", "global_map"), {
                     pieces: currentMapData,
                     updatedAt: new Date(),
                     updatedBy: auth.currentUser.email
                 });
                 
-                showToast("Mapa salvo com sucesso no Firebase!", "success");
+                showToast("Mapa salvo com sucesso!", "success");
             } catch (e) {
                 console.error("Erro ao salvar:", e);
                 showToast("Erro ao salvar: " + e.message, "error");
             } finally {
-                btn.innerHTML = originalText;
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
             }
         });
 
@@ -574,22 +699,19 @@
                 if (docSnap.exists()) {
                     const savedData = docSnap.data();
                     if (savedData.pieces && Array.isArray(savedData.pieces)) {
-                        // Limpar canvas atual
                         mapCanvas.innerHTML = '';
                         currentMapData = [];
                         
-                        // Recriar elementos
                         savedData.pieces.forEach(data => {
                             addMapPieceToCanvas(data.src, data);
                         });
-                        showToast("Mapa carregado do servidor.", "success");
+                        
+                        if(isEditorMode) showToast("Mapa carregado.", "success");
                     }
-                } else {
-                    console.log("Nenhum mapa salvo encontrado, iniciando em branco.");
                 }
             } catch (e) {
                 console.error("Erro ao carregar:", e);
-                showToast("Erro ao carregar dados.", "error");
+                showToast("Erro ao carregar mapa.", "error");
             }
         }
 
@@ -601,13 +723,8 @@
                 type === 'success' ? 'bg-green-800 border-green-500' : 
                 'bg-gray-800 border-blue-500'
             }`;
-            
-            // Slide in
             toast.style.transform = 'translateY(0)';
-            
-            setTimeout(() => {
-                toast.style.transform = 'translateY(150%)'; // Slide out
-            }, 3000);
+            setTimeout(() => { toast.style.transform = 'translateY(150%)'; }, 3000);
         }
 
     </script>
